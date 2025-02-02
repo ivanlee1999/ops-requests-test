@@ -75,6 +75,9 @@ jobs:
           Extract only the deployment file path that needs to be updated.
           Return just the file path as a string, nothing else."""
 
+          print("\n=== Sending file path prompt to Claude ===\n")
+          print(file_prompt)
+
           file_message = client.messages.create(
               model="claude-3-opus-20240229",
               max_tokens=1000,
@@ -82,6 +85,9 @@ jobs:
               system="You are a helpful assistant that processes deployment update requests.",
               messages=[{"role": "user", "content": file_prompt}]
           )
+
+          print("\n=== Claude's response for file path ===\n")
+          print(file_message.content[0].text)
 
           # Clean up the file path (remove quotes and extra whitespace)
           deployment_file = file_message.content[0].text.strip().strip('"\'')
@@ -110,6 +116,9 @@ jobs:
               Please update this file according to the issue request. Return only the updated file content in yaml format, nothing else.
               Do not include any markdown formatting or explanations, just the raw yaml content."""
 
+              print("\n=== Sending file content prompt to Claude ===\n")
+              print(update_prompt)
+
               update_message = client.messages.create(
                   model="claude-3-opus-20240229",
                   max_tokens=2000,
@@ -118,20 +127,44 @@ jobs:
                   messages=[{"role": "user", "content": update_prompt}]
               )
 
+              print("\n=== Claude's response with updated content ===\n")
+              print(update_message.content[0].text)
+
               # Get the updated content from Claude
               updated_content = update_message.content[0].text.strip()
               
+              print("\n=== Content being written to file ===\n")
+              print(f"File path: {full_file_path}")
+              print("Content:")
+              print(updated_content)
+
               # Write the updated content back to the file
               with open(full_file_path, 'w') as f:
                   f.write(updated_content)
               
               # Commit and push changes
+              print("\n=== Git Operations ===\n")
+              
+              # Check if there are any differences
               os.system(f"""
                 cd ops-test
+                echo '=== Git Status Before Add ==='
+                git status
+                
+                echo '\n=== File Diff ==='
+                git diff {deployment_file}
+                
+                echo '\n=== Proceeding with commit ==='
                 git config user.name "GitHub Action"
                 git config user.email "action@github.com"
                 git add {deployment_file}
+                
+                echo '\n=== Git Status After Add ==='
+                git status
+                
                 git commit -m "Update deployment configuration based on issue #{os.environ['GITHUB_EVENT_NUMBER']}"
+                
+                echo '\n=== Push Changes ==='
                 git push origin {branch_name}
               """)
               
