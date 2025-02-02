@@ -67,52 +67,61 @@ jobs:
           issue_title = os.environ['ISSUE_TITLE']
           issue_body = os.environ['ISSUE_BODY']
 
-          # Prepare prompt for Claude
-          prompt = f"""Based on this issue request:
+          # First, get deployment file path from issue
+          file_prompt = f"""Based on this issue request:
           Title: {issue_title}
           Body: {issue_body}
 
-          Extract the following information:
-          1. The new SHA1 to be updated
-          2. The deployment file that needs to be updated
-          3. Any additional context or requirements
+          Extract only the deployment file path that needs to be updated.
+          Return just the file path as a string, nothing else."""
 
-          Format the response as JSON with keys: sha1, deployment_file, additional_context"""
-
-          # Get Claude's response
-          message = client.messages.create(
+          file_message = client.messages.create(
               model="claude-3-opus-20240229",
               max_tokens=1000,
               temperature=0,
               system="You are a helpful assistant that processes deployment update requests.",
-              messages=[{"role": "user", "content": prompt}]
+              messages=[{"role": "user", "content": file_prompt}]
           )
 
+          deployment_file = file_message.content[0].text.strip()
+          full_file_path = f"ops-test/{deployment_file}"
+
           try:
-              parsed = json.loads(message.content[0].text)
               
               # Create a new branch
               branch_name = f"update-sha1-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
               os.system(f"cd ops-test && git checkout -b {branch_name}")
               
-              # Update the deployment file
-              deployment_file = f"ops-test/{parsed['deployment_file']}"
-              with open(deployment_file, 'r') as f:
-                  content = f.read()
-              
-              # Update SHA1 in the file
-              import re
-              # Use a safer regex pattern with explicit capture group
-              def replace_sha(match):
-                  return match.group(1) + parsed['sha1']
-              
-              updated_content = re.sub(
-                  r'(image:[^:]+:)[a-f0-9]{40}',
-                  replace_sha,
-                  content
+              # Read the current file content
+              with open(full_file_path, 'r') as f:
+                  current_content = f.read()
+
+              # Send file content to Claude for updating
+              update_prompt = f"""Based on this issue request:
+              Title: {issue_title}
+              Body: {issue_body}
+
+              Here is the current content of the file {deployment_file}:
+              ```yaml
+              {current_content}
+              ```
+
+              Please update this file according to the issue request. Return only the updated file content in yaml format, nothing else.
+              Do not include any markdown formatting or explanations, just the raw yaml content."""
+
+              update_message = client.messages.create(
+                  model="claude-3-opus-20240229",
+                  max_tokens=2000,
+                  temperature=0,
+                  system="You are a helpful assistant that processes deployment update requests. You will receive yaml files and return updated yaml files.",
+                  messages=[{"role": "user", "content": update_prompt}]
               )
+
+              # Get the updated content from Claude
+              updated_content = update_message.content[0].text.strip()
               
-              with open(deployment_file, 'w') as f:
+              # Write the updated content back to the file
+              with open(full_file_path, 'w') as f:
                   f.write(updated_content)
               
               # Commit and push changes
@@ -121,7 +130,7 @@ jobs:
                 git config user.name "GitHub Action"
                 git config user.email "action@github.com"
                 git add {parsed['deployment_file']}
-                git commit -m "Update deployment SHA1 to {parsed['sha1']}"
+                git commit -m "Update deployment configuration based on issue #${os.environ['GITHUB_EVENT_NUMBER']}"
                 git push origin {branch_name}
               """)
               
@@ -132,14 +141,13 @@ jobs:
               }
               
               pr_body = {
-                  'title': f"Update deployment SHA1: {parsed['sha1']}",
+                  'title': f"Update {deployment_file} from issue #{os.environ['GITHUB_EVENT_NUMBER']}",
                   'body': f"""Automated PR created from issue #{os.environ['GITHUB_EVENT_NUMBER']}
                   
-                  - New SHA1: `{parsed['sha1']}`
-                  - Deployment File: `{parsed['deployment_file']}`
+                  Updated file: `{deployment_file}`
                   
-                  Additional Context:
-                  {parsed['additional_context']}
+                  Changes were made based on the issue request:
+                  Title: {issue_title}
                   
                   Original Issue: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['GITHUB_EVENT_NUMBER']}
                   """,
