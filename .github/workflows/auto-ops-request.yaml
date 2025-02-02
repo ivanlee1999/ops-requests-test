@@ -19,11 +19,14 @@ jobs:
       - name: Get Issue Content
         id: issue
         run: |
-          # Escape the title and body to handle special characters
-          title="$(jq -r .issue.title $GITHUB_EVENT_PATH | sed 's/"/\"/g')"
-          body="$(jq -r .issue.body $GITHUB_EVENT_PATH | sed 's/"/\"/g')"
-          echo "title=$title" >> $GITHUB_OUTPUT
-          echo "body=$body" >> $GITHUB_OUTPUT
+          # Use GitHub's EOF delimiter syntax for multiline strings
+          echo "title<<EOF" >> $GITHUB_OUTPUT
+          jq -r .issue.title $GITHUB_EVENT_PATH >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          jq -r .issue.body $GITHUB_EVENT_PATH >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -57,9 +60,9 @@ jobs:
           # Initialize Claude client
           client = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
 
-          # Get issue details from environment and handle potential escaping
-          issue_title = os.environ['ISSUE_TITLE'].replace('\"', '"')
-          issue_body = os.environ['ISSUE_BODY'].replace('\"', '"')
+          # Get issue details from environment
+          issue_title = os.environ['ISSUE_TITLE']
+          issue_body = os.environ['ISSUE_BODY']
 
           # Prepare prompt for Claude
           prompt = f"""Based on this issue request:
