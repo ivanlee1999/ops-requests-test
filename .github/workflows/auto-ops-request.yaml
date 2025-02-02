@@ -5,12 +5,12 @@ on:
     types: [opened]
 
 jobs:
-  create-ops-request:
+  create-ops-pr:
     runs-on: ubuntu-latest
     permissions:
       issues: read
       contents: write
-      repository-projects: write
+      pull-requests: write
 
     steps:
       - name: Checkout ops-request-test
@@ -31,7 +31,14 @@ jobs:
         run: |
           pip install anthropic requests
 
-      - name: Process with Claude and Create Ops Request
+      - name: Checkout ops-test repository
+        uses: actions/checkout@v3
+        with:
+          repository: ivanlee1999/ops-test
+          token: ${{ secrets.GH_PAT }}
+          path: ops-test
+
+      - name: Process with Claude and Create PR
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -42,6 +49,7 @@ jobs:
           import os
           import requests
           import sys
+          from datetime import datetime
 
           # Initialize Claude client
           client = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
@@ -74,15 +82,47 @@ jobs:
           try:
               parsed = json.loads(message.content[0].text)
               
-              # Create ops request in ops-test repo
+              # Create a new branch
+              branch_name = f"update-sha1-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+              os.system(f"cd ops-test && git checkout -b {branch_name}")
+              
+              # Update the deployment file
+              deployment_file = f"ops-test/{parsed['deployment_file']}"
+              with open(deployment_file, 'r') as f:
+                  content = f.read()
+              
+              # Update SHA1 in the file
+              # Note: This is a simple example. You might need to adjust the replacement logic
+              # based on your actual file structure
+              import re
+              updated_content = re.sub(
+                  r'(image: .*:)[a-f0-9]{40}',
+                  f"\\1{parsed['sha1']}",
+                  content
+              )
+              
+              with open(deployment_file, 'w') as f:
+                  f.write(updated_content)
+              
+              # Commit and push changes
+              os.system(f"""
+                cd ops-test
+                git config user.name "GitHub Action"
+                git config user.email "action@github.com"
+                git add {parsed['deployment_file']}
+                git commit -m "Update deployment SHA1 to {parsed['sha1']}"
+                git push origin {branch_name}
+              """)
+              
+              # Create Pull Request
               headers = {
                   'Authorization': f"token {os.environ['GITHUB_TOKEN']}",
                   'Accept': 'application/vnd.github.v3+json'
               }
               
-              ops_request_body = {
+              pr_body = {
                   'title': f"Update deployment SHA1: {parsed['sha1']}",
-                  'body': f"""Automated ops request created from issue #{os.environ['GITHUB_EVENT_NUMBER']}
+                  'body': f"""Automated PR created from issue #{os.environ['GITHUB_EVENT_NUMBER']}
                   
                   - New SHA1: `{parsed['sha1']}`
                   - Deployment File: `{parsed['deployment_file']}`
@@ -92,20 +132,21 @@ jobs:
                   
                   Original Issue: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['GITHUB_EVENT_NUMBER']}
                   """,
-                  'labels': ['automated']
+                  'head': branch_name,
+                  'base': 'main'  # or your default branch
               }
               
               response = requests.post(
-                  'https://api.github.com/repos/ivanlee1999/ops-test/issues',
+                  'https://api.github.com/repos/ivanlee1999/ops-test/pulls',
                   headers=headers,
-                  json=ops_request_body
+                  json=pr_body
               )
               
               if response.status_code != 201:
-                  print(f"Failed to create ops request: {response.text}")
+                  print(f"Failed to create PR: {response.text}")
                   sys.exit(1)
                   
-              print(f"Successfully created ops request: {response.json()['html_url']}")
+              print(f"Successfully created PR: {response.json()['html_url']}")
               
           except Exception as e:
               print(f"Error processing request: {str(e)}")
