@@ -101,12 +101,14 @@ jobs:
                   content = f.read()
               
               # Update SHA1 in the file
-              # Note: This is a simple example. You might need to adjust the replacement logic
-              # based on your actual file structure
               import re
+              # Use a safer regex pattern with explicit capture group
+              def replace_sha(match):
+                  return match.group(1) + parsed['sha1']
+              
               updated_content = re.sub(
-                  r'(image: .*:)[a-f0-9]{40}',
-                  f"\\1{parsed['sha1']}",
+                  r'(image:[^:]+:)[a-f0-9]{40}',
+                  replace_sha,
                   content
               )
               
