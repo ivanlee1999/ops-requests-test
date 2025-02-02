@@ -154,7 +154,3 @@ jobs:
           EOL
 
           python process_issue.py
-        env:
-          ISSUE_TITLE: ${{ steps.issue.outputs.title }}
-          ISSUE_BODY: ${{ steps.issue.outputs.body }}
-          GITHUB_EVENT_NUMBER: ${{ github.event.issue.number }}
