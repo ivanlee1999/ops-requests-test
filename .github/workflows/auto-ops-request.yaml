@@ -1,0 +1,119 @@
+name: Auto Ops Request Generator
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  create-ops-request:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      contents: write
+      repository-projects: write
+
+    steps:
+      - name: Checkout ops-request-test
+        uses: actions/checkout@v3
+        
+      - name: Get Issue Content
+        id: issue
+        run: |
+          echo "title=$(jq -r .issue.title $GITHUB_EVENT_PATH)" >> $GITHUB_OUTPUT
+          echo "body=$(jq -r .issue.body $GITHUB_EVENT_PATH)" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install anthropic requests
+
+      - name: Process with Claude and Create Ops Request
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          cat > process_issue.py << 'EOL'
+          import anthropic
+          import json
+          import os
+          import requests
+          import sys
+
+          # Initialize Claude client
+          client = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
+
+          # Get issue details from environment
+          issue_title = os.environ['ISSUE_TITLE']
+          issue_body = os.environ['ISSUE_BODY']
+
+          # Prepare prompt for Claude
+          prompt = f"""Based on this issue request:
+          Title: {issue_title}
+          Body: {issue_body}
+
+          Extract the following information:
+          1. The new SHA1 to be updated
+          2. The deployment file that needs to be updated
+          3. Any additional context or requirements
+
+          Format the response as JSON with keys: sha1, deployment_file, additional_context"""
+
+          # Get Claude's response
+          message = client.messages.create(
+              model="claude-3-opus-20240229",
+              max_tokens=1000,
+              temperature=0,
+              system="You are a helpful assistant that processes deployment update requests.",
+              messages=[{"role": "user", "content": prompt}]
+          )
+
+          try:
+              parsed = json.loads(message.content[0].text)
+              
+              # Create ops request in ops-test repo
+              headers = {
+                  'Authorization': f"token {os.environ['GITHUB_TOKEN']}",
+                  'Accept': 'application/vnd.github.v3+json'
+              }
+              
+              ops_request_body = {
+                  'title': f"Update deployment SHA1: {parsed['sha1']}",
+                  'body': f"""Automated ops request created from issue #{os.environ['GITHUB_EVENT_NUMBER']}
+                  
+                  - New SHA1: `{parsed['sha1']}`
+                  - Deployment File: `{parsed['deployment_file']}`
+                  
+                  Additional Context:
+                  {parsed['additional_context']}
+                  
+                  Original Issue: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['GITHUB_EVENT_NUMBER']}
+                  """,
+                  'labels': ['automated']
+              }
+              
+              response = requests.post(
+                  'https://api.github.com/repos/ivanlee1999/ops-test/issues',
+                  headers=headers,
+                  json=ops_request_body
+              )
+              
+              if response.status_code != 201:
+                  print(f"Failed to create ops request: {response.text}")
+                  sys.exit(1)
+                  
+              print(f"Successfully created ops request: {response.json()['html_url']}")
+              
+          except Exception as e:
+              print(f"Error processing request: {str(e)}")
+              sys.exit(1)
+          EOL
+
+          python process_issue.py
+        env:
+          ISSUE_TITLE: ${{ steps.issue.outputs.title }}
+          ISSUE_BODY: ${{ steps.issue.outputs.body }}
+          GITHUB_EVENT_NUMBER: ${{ github.event.issue.number }}
