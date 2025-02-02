@@ -130,8 +130,8 @@ jobs:
                 cd ops-test
                 git config user.name "GitHub Action"
                 git config user.email "action@github.com"
-                git add {parsed['deployment_file']}
-                git commit -m "Update deployment configuration based on issue #${os.environ['GITHUB_EVENT_NUMBER']}"
+                git add {deployment_file}
+                git commit -m "Update deployment configuration based on issue #{os.environ['GITHUB_EVENT_NUMBER']}"
                 git push origin {branch_name}
               """)
               
@@ -149,11 +149,12 @@ jobs:
                   
                   Changes were made based on the issue request:
                   Title: {issue_title}
+                  Body: {issue_body}
                   
                   Original Issue: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['GITHUB_EVENT_NUMBER']}
                   """,
                   'head': branch_name,
-                  'base': 'main'  # or your default branch
+                  'base': 'main'
               }
               
               response = requests.post(
