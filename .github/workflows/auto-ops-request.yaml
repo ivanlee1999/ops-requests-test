@@ -83,8 +83,9 @@ jobs:
               messages=[{"role": "user", "content": file_prompt}]
           )
 
-          deployment_file = file_message.content[0].text.strip()
-          full_file_path = f"ops-test/{deployment_file}"
+          # Clean up the file path (remove quotes and extra whitespace)
+          deployment_file = file_message.content[0].text.strip().strip('"\'')
+          full_file_path = os.path.join('ops-test', deployment_file)
 
           try:
               
